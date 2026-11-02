@@ -462,8 +462,10 @@ bool Initialize(uintptr_t moduleBase, uintptr_t moduleEnd) {
                        HexString(moduleEnd) + "; ignoring it");
         }
         g_Status = "ProcessEvent not found in .dynsym or .symtab";
-        LogMessage("GameThread: " + g_Status + " - kick and every other UFunction "
-                   "backed feature stays disabled");
+        // Normal for the stripped Shipping binary. The caller falls back to the exec pump,
+        // which derives ProcessEvent from the stack once a player's camera update runs.
+        LogMessage("GameThread: " + g_Status + " (stripped binary); falling back to the exec "
+                   "pump - kick, give and broadcast unlock once the first player connects");
         return false;
     }
 
