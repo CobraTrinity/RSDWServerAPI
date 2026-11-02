@@ -41,8 +41,8 @@ Output: `dist/librsdwapi.so`.
 A bare `make` or `xmake` also works if you already have a Linux toolchain. Builds on hosts
 with glibc 2.38+ (Ubuntu 24.04, Fedora 39+) stay loadable on the server image thanks to
 `src/utils/glibc_compat.cpp`; run `make glibc-check` to confirm the result needs nothing newer
-than bookworm's glibc 2.36. After changing only a header (offsets, version), run
-`make rebuild` - objects do not track header dependencies.
+than bookworm's glibc 2.36. Objects track their header dependencies, so a header change rebuilds
+everything that includes it; `make rebuild` forces a full build from scratch.
 
 The version lives in `src/version.h` and nowhere else.
 

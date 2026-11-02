@@ -4,3 +4,5 @@ build/
 src/**/*.o
 src/*.o
 RSDWSDK/build/
+src/**/*.d
+src/*.d

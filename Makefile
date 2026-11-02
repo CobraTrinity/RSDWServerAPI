@@ -38,6 +38,7 @@ SRC := src/rsdwapi.cpp \
 MAX_GLIBC := 2.36
 
 OBJ := $(SRC:.cpp=.o)
+DEP := $(OBJ:.o=.d)
 OUT := dist/librsdwapi.so
 
 all: $(OUT)
@@ -46,11 +47,16 @@ $(OUT): $(OBJ)
 	@mkdir -p dist
 	$(CXX) $(OBJ) -o $@ $(LDFLAGS)
 
+# -MMD -MP: every object depends on the headers it includes. Without this, changing a
+# struct in a header (PlayerInfo in dom_engine.h) rebuilt only the edited .cpp files and
+# left the rest compiled against the old layout - a mismatched sizeof that crashed a live
+# server the moment a player joined.
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
 
-# Headers are not tracked per object, so a header-only change (offsets, version) needs a
-# clean build. `make rebuild` does that.
+-include $(DEP)
+
+# Forces a full build from scratch (release builds should use this).
 rebuild: clean all
 
 version:
@@ -73,6 +79,6 @@ glibc-check: $(OUT)
 	else echo "glibc-check: OK (needs GLIBC_$$need, limit $(MAX_GLIBC))"; fi
 
 clean:
-	rm -f $(OBJ) $(OUT)
+	rm -f $(OBJ) $(DEP) $(OUT) build/chat_discovery_test
 
 .PHONY: all clean rebuild version glibc-check test
