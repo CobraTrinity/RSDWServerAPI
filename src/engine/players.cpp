@@ -3,6 +3,7 @@
 #include "../utils/memory.h"
 
 #include <cstring>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,6 +17,20 @@ struct PawnComponents {
     uintptr_t hydration = 0;
     uintptr_t endurance = 0;
 };
+
+// True when the class or any parent's name contains `needle`. Endurance is not an
+// attribute (live servers only carry EnduranceDecayMultiplier there), and its stat
+// component's exact class name is not in a dump yet, so it is matched by name fragment.
+bool ClassChainContains(const Engine& engine, uintptr_t object, const char* needle) {
+    uintptr_t cls = Mem::ReadPtr(object + Offsets::UObject_Class);
+    for (int depth = 0; cls && depth < 8; depth++) {
+        if (engine.GetObjectName(cls).find(needle) != std::string::npos) return true;
+        cls = Mem::ReadPtr(cls + Offsets::UStruct_SuperStruct);
+    }
+    return false;
+}
+
+bool g_LoggedPawnComponents = false;
 
 bool Plausible(float current, float max) {
     return current == current && max == max &&  // not NaN
@@ -270,6 +285,7 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
     if (pawnSet.empty()) return players;
 
     std::unordered_map<uintptr_t, PawnComponents> byPawn;
+    std::set<std::string> pawnComponentClasses;
     int32_t objectCount = GetObjectCount();
     for (int32_t i = 0; i < objectCount; i++) {
         uintptr_t object = GetObjectByIndex(i);
@@ -279,13 +295,23 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
         if (!outer || pawnSet.find(outer) == pawnSet.end()) continue;
 
         PawnComponents& slots = byPawn[outer];
+        if (!g_LoggedPawnComponents) pawnComponentClasses.insert(GetObjectClassName(object));
         if (!slots.sustenance && IsA(object, "SustenanceComponent")) {
             slots.sustenance = object;
         } else if (!slots.hydration && IsA(object, "HydrationComponent")) {
             slots.hydration = object;
-        } else if (!slots.endurance && IsA(object, "EnduranceComponent")) {
+        } else if (!slots.endurance && ClassChainContains(*this, object, "Endurance")) {
             slots.endurance = object;
         }
+    }
+
+    // One-time inventory of what hangs off a player pawn, so a stat that reads null can be
+    // matched to its real class from a single log instead of a memory dump.
+    if (!g_LoggedPawnComponents && !pawnComponentClasses.empty()) {
+        g_LoggedPawnComponents = true;
+        std::string list;
+        for (const std::string& name : pawnComponentClasses) list += (list.empty() ? "" : ", ") + name;
+        LogMessage("Players: pawn components: " + list);
     }
 
     for (PlayerInfo& info : players) {
@@ -311,9 +337,8 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
         }
 
         // Only when the attributes did not already supply it, and only if the values look
-        // like a stat. "EnduranceComponent" follows the Sustenance/Hydration naming and has
-        // not been checked against a dump, so a wrong guess must read as "absent", never as
-        // garbage.
+        // like a stat: the component is matched by name fragment and assumed to share the
+        // Sustenance/Hydration layout, so a wrong match must read as "absent", not garbage.
         if (!info.hasEndurance && slots.endurance && Mem::Readable((void*)slots.endurance, 0x140)) {
             float current = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_Current);
             float max = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_CurrentMax);
