@@ -14,7 +14,13 @@ namespace {
 struct PawnComponents {
     uintptr_t sustenance = 0;
     uintptr_t hydration = 0;
+    uintptr_t endurance = 0;
 };
+
+bool Plausible(float current, float max) {
+    return current == current && max == max &&  // not NaN
+           max > 0.0f && max < 1000000.0f && current >= 0.0f && current <= max * 1.01f;
+}
 
 void ReadDoubleTriple(uintptr_t address, double& a, double& b, double& c) {
     if (!Mem::Readable((void*)address, sizeof(double) * 3)) return;
@@ -80,6 +86,8 @@ void Engine::ReadHealthAndAttributes(PlayerInfo& info) const {
     ReadAttributeArrays(attributesComponent, Offsets::Attributes_SharedFloatAttributes,
                         Offsets::Attributes_SharedAttributeValues, true, info.attributes);
 
+    bool haveEndurance = false, haveMaxEndurance = false;
+    float endurance = 0.0f, maxEndurance = 0.0f;
     for (const AttributeInfo& attribute : info.attributes) {
         if (attribute.name == "Health") {
             info.health = attribute.value;
@@ -87,9 +95,22 @@ void Engine::ReadHealthAndAttributes(PlayerInfo& info) const {
         } else if (attribute.name == "MaxHealth") {
             info.maxHealth = attribute.value;
             info.hasHealth = true;
+        } else if (attribute.name == "Endurance") {
+            endurance = attribute.value;
+            haveEndurance = true;
+        } else if (attribute.name == "MaxEndurance") {
+            maxEndurance = attribute.value;
+            haveMaxEndurance = true;
         }
     }
     info.isDead = info.hasHealth && info.health <= 0.0f;
+
+    if (haveEndurance && haveMaxEndurance && Plausible(endurance, maxEndurance)) {
+        info.hasEndurance = true;
+        info.endurance = endurance;
+        info.maxEndurance = maxEndurance;
+        info.enduranceSource = "attributes";
+    }
 }
 
 void Engine::ReadSkills(PlayerInfo& info) const {
@@ -233,6 +254,16 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             }
         }
 
+        // A player who has joined but not spawned yet has no pawn, so no controller via the
+        // pawn - but the controller owns its PlayerState. Without this, join-time messages
+        // (welcome broadcasts) skipped exactly the players they were meant for.
+        if (!info.controllerPtr) {
+            uintptr_t owner = Mem::ReadPtr(playerState + Offsets::Actor_Owner);
+            if (owner && Mem::Readable((void*)owner, 0x40) && IsA(owner, "PlayerController")) {
+                info.controllerPtr = owner;
+            }
+        }
+
         players.push_back(info);
     }
 
@@ -252,6 +283,8 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             slots.sustenance = object;
         } else if (!slots.hydration && IsA(object, "HydrationComponent")) {
             slots.hydration = object;
+        } else if (!slots.endurance && IsA(object, "EnduranceComponent")) {
+            slots.endurance = object;
         }
     }
 
@@ -275,6 +308,21 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             info.hasHydration = true;
             info.hydration = Mem::ReadFloat(slots.hydration + Offsets::SurvivalStat_Current);
             info.maxHydration = Mem::ReadFloat(slots.hydration + Offsets::SurvivalStat_CurrentMax);
+        }
+
+        // Only when the attributes did not already supply it, and only if the values look
+        // like a stat. "EnduranceComponent" follows the Sustenance/Hydration naming and has
+        // not been checked against a dump, so a wrong guess must read as "absent", never as
+        // garbage.
+        if (!info.hasEndurance && slots.endurance && Mem::Readable((void*)slots.endurance, 0x140)) {
+            float current = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_Current);
+            float max = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_CurrentMax);
+            if (Plausible(current, max)) {
+                info.hasEndurance = true;
+                info.endurance = current;
+                info.maxEndurance = max;
+                info.enduranceSource = "component";
+            }
         }
 
     }
