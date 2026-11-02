@@ -2,6 +2,7 @@
 #include "../utils/logger.h"
 #include "../utils/memory.h"
 
+#include <cstdio>
 #include <cstring>
 #include <set>
 #include <sstream>
@@ -31,6 +32,18 @@ bool ClassChainContains(const Engine& engine, uintptr_t object, const char* need
 }
 
 bool g_LoggedPawnComponents = false;
+bool g_LoggedEnduranceProbe = false;
+
+std::string ClassChain(const Engine& engine, uintptr_t object) {
+    std::string chain;
+    uintptr_t cls = Mem::ReadPtr(object + Offsets::UObject_Class);
+    for (int depth = 0; cls && depth < 8; depth++) {
+        if (!chain.empty()) chain += " > ";
+        chain += engine.GetObjectName(cls);
+        cls = Mem::ReadPtr(cls + Offsets::UStruct_SuperStruct);
+    }
+    return chain;
+}
 
 bool Plausible(float current, float max) {
     return current == current && max == max &&  // not NaN
@@ -300,7 +313,10 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             slots.sustenance = object;
         } else if (!slots.hydration && IsA(object, "HydrationComponent")) {
             slots.hydration = object;
-        } else if (!slots.endurance && ClassChainContains(*this, object, "Endurance")) {
+        } else if (!slots.endurance && ClassChainContains(*this, object, "EnduranceComponent")) {
+            // "EnduranceComponent", not just "Endurance": the pawn also owns attribute
+            // objects named EnduranceDecayMultiplier and EnduranceReductionRatePerInGameHour,
+            // and the first of those used to win the match. Live class: BP_EnduranceComponent_C.
             slots.endurance = object;
         }
     }
@@ -347,6 +363,16 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
                 info.endurance = current;
                 info.maxEndurance = max;
                 info.enduranceSource = "component";
+            }
+            // Once per process: if this component does not share the Sustenance/Hydration
+            // layout, the class chain and the raw values say where to look instead.
+            if (!g_LoggedEnduranceProbe) {
+                g_LoggedEnduranceProbe = true;
+                char values[160];
+                snprintf(values, sizeof(values), "+0x130=%g +0x134=%g +0x138=%g",
+                         current, max, Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_DecayBuffer));
+                LogMessage("Players: endurance component " + ClassChain(*this, slots.endurance) +
+                           " reads " + values + (info.hasEndurance ? " (accepted)" : " (rejected)"));
             }
         }
 
