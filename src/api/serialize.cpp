@@ -96,8 +96,9 @@ std::string Player(const DomEngine::PlayerInfo& p) {
     }
 
     if (p.hasEndurance) {
-        oss << "\"endurance\":{\"current\":" << Num(p.endurance)
-            << ",\"max\":" << Num(p.maxEndurance) << ",\"source\":" << Q(p.enduranceSource) << "},";
+        oss << "\"endurance\":{\"current\":" << Num(p.endurance) << ",\"max\":";
+        if (p.hasMaxEndurance) oss << Num(p.maxEndurance); else oss << "null";
+        oss << ",\"source\":" << Q(p.enduranceSource) << "},";
     } else {
         oss << "\"endurance\":null,";
     }

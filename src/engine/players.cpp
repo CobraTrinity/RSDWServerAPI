@@ -19,18 +19,6 @@ struct PawnComponents {
     uintptr_t endurance = 0;
 };
 
-// True when the class or any parent's name contains `needle`. Endurance is not an
-// attribute (live servers only carry EnduranceDecayMultiplier there), and its stat
-// component's exact class name is not in a dump yet, so it is matched by name fragment.
-bool ClassChainContains(const Engine& engine, uintptr_t object, const char* needle) {
-    uintptr_t cls = Mem::ReadPtr(object + Offsets::UObject_Class);
-    for (int depth = 0; cls && depth < 8; depth++) {
-        if (engine.GetObjectName(cls).find(needle) != std::string::npos) return true;
-        cls = Mem::ReadPtr(cls + Offsets::UStruct_SuperStruct);
-    }
-    return false;
-}
-
 bool g_LoggedPawnComponents = false;
 bool g_LoggedEnduranceProbe = false;
 
@@ -136,6 +124,7 @@ void Engine::ReadHealthAndAttributes(PlayerInfo& info) const {
     if (haveEndurance && haveMaxEndurance && Plausible(endurance, maxEndurance)) {
         info.hasEndurance = true;
         info.endurance = endurance;
+        info.hasMaxEndurance = true;
         info.maxEndurance = maxEndurance;
         info.enduranceSource = "attributes";
     }
@@ -313,10 +302,9 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
             slots.sustenance = object;
         } else if (!slots.hydration && IsA(object, "HydrationComponent")) {
             slots.hydration = object;
-        } else if (!slots.endurance && ClassChainContains(*this, object, "EnduranceComponent")) {
-            // "EnduranceComponent", not just "Endurance": the pawn also owns attribute
-            // objects named EnduranceDecayMultiplier and EnduranceReductionRatePerInGameHour,
-            // and the first of those used to win the match. Live class: BP_EnduranceComponent_C.
+        } else if (!slots.endurance && IsA(object, "EnduranceComponent")) {
+            // Live chain (5.6.1 CL-254097): BP_EnduranceComponent_C > EnduranceComponent >
+            // SurvivalStatComponent, the same base as Sustenance and Hydration.
             slots.endurance = object;
         }
     }
@@ -358,15 +346,23 @@ std::vector<PlayerInfo> Engine::GetAllPlayers() const {
         if (!info.hasEndurance && slots.endurance && Mem::Readable((void*)slots.endurance, 0x140)) {
             float current = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_Current);
             float max = Mem::ReadFloat(slots.endurance + Offsets::SurvivalStat_CurrentMax);
+            // Unlike Sustenance/Hydration, the live EnduranceComponent leaves CurrentMax at 0
+            // (observed: Current 99.38, CurrentMax 0), so the current value is accepted on
+            // its own and max is reported only when the game actually stores one.
             if (Plausible(current, max)) {
                 info.hasEndurance = true;
                 info.endurance = current;
+                info.hasMaxEndurance = true;
                 info.maxEndurance = max;
                 info.enduranceSource = "component";
+            } else if (max == 0.0f && current == current && current >= 0.0f && current <= 1000.0f) {
+                info.hasEndurance = true;
+                info.endurance = current;
+                info.enduranceSource = "component";
             }
-            // Once per process: if this component does not share the Sustenance/Hydration
-            // layout, the class chain and the raw values say where to look instead.
-            if (!g_LoggedEnduranceProbe) {
+            // Once per process, and only when nothing usable was read: the class chain and
+            // raw values say where to look instead.
+            if (!g_LoggedEnduranceProbe && !info.hasEndurance) {
                 g_LoggedEnduranceProbe = true;
                 char values[160];
                 snprintf(values, sizeof(values), "+0x130=%g +0x134=%g +0x138=%g",

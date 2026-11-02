@@ -200,7 +200,7 @@ curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/players
     "health":     { "current": 100.0, "max": 100.0, "canDie": true, "isDead": false },
     "sustenance": { "current": 72.0, "max": 100.0 },
     "hydration":  { "current": 65.0, "max": 100.0 },
-    "endurance":  { "current": 80.0, "max": 100.0, "source": "attributes" },
+    "endurance":  { "current": 99.4, "max": null, "source": "component" },
     "attributes": [{ "name": "Health", "value": 100.0, "baseValue": 100.0, "shared": false }],
     "skills":     [{ "skill": "SKILL_Woodcutting", "currentXP": 4210 }],
     "pointers": { "playerState": "0x...", "pawn": "0x...", "controller": "0x..." }
@@ -208,9 +208,10 @@ curl -H "Authorization: Bearer TOKEN" http://localhost:8080/api/players
 }
 ```
 
-`endurance` is read from the `Endurance`/`MaxEndurance` attributes when present, otherwise
-from an endurance stat component on the pawn, and is `null` when neither yields plausible
-values. `source` says which was used.
+`endurance` comes from the pawn's `EnduranceComponent` (or `Endurance`/`MaxEndurance`
+attributes, if a build ever adds them). The live component stores no maximum, so `max` is
+`null` unless the game provides one. The whole field is `null` when nothing plausible is
+read; `source` says where it came from.
 
 Health and max health come from the character's attributes component, not from
 `UHealthComponent`'s own fields - on a player those are always zero, because

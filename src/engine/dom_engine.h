@@ -225,6 +225,7 @@ struct PlayerInfo {
     // carries them, otherwise from an endurance survival-stat component on the pawn.
     bool hasEndurance = false;
     float endurance = 0.0f;
+    bool hasMaxEndurance = false;  // the live component does not store one (reads 0)
     float maxEndurance = 0.0f;
     std::string enduranceSource;
 
