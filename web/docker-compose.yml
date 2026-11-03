@@ -1,0 +1,17 @@
+# docker compose -f web/docker-compose.yml up -d
+# Then open http://<host>:8081, or put Nginx Proxy Manager in front of port 8081.
+services:
+  rsdw-panel:
+    image: ghcr.io/cobratrinity/rsdw-panel:latest
+    # Or build it from this checkout instead of pulling:
+    # build: .
+    container_name: rsdw-panel
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    environment:
+      # The game server's REST API. /api/ is proxied there, so the panel and the API share
+      # one address and a single HTTPS host covers both.
+      RSDW_API_UPSTREAM: "http://192.168.1.50:8080"
+      # Or leave the upstream empty and only pre-fill an API address in the panel:
+      # RSDW_API_URL: "https://api.example.com"

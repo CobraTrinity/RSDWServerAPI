@@ -282,6 +282,90 @@ safe to serve to anyone. No ports, no owner id, no server GUID, no memory addres
 `status` is `starting` until the world has loaded. Engine discovery detail goes to the log
 at startup and to the authenticated RCON `status` command.
 
+## Web panel
+
+[`web/index.html`](web/index.html) is a single-file admin panel for the REST API, with no
+build step and no external requests. Open it straight from disk, or host it anywhere, then
+enter the API address and bearer token.
+
+- **Players** - live table with health, sustenance, hydration and endurance, looked up
+  again every 3 minutes by default (30s to 5m, or off). Click a row for position, skills,
+  attributes and the raw JSON. Kick, ban and give from each row.
+- **Broadcast** - message with an optional sender prefix and a preview.
+- **Give items** - pick an online player and a loaded item from selectors, or search the
+  item list and click one.
+- **Bans** - ban online players or offline SteamID64s, and unban.
+
+The API already sends `Access-Control-Allow-Origin: *`, so the panel works from any origin.
+A panel served over `https` cannot call an `http` API (browsers block mixed content), so
+either open it from disk, or put the API behind HTTPS as below. The token is only kept in
+the browser's local storage when "Remember token" is ticked.
+
+### Docker
+
+The panel is published as `ghcr.io/cobratrinity/rsdw-panel`, a small nginx image. Point
+it at the game server's API and it proxies `/api/` there, so the panel and the API share
+one address:
+
+```bash
+docker run -d --name rsdw-panel --restart unless-stopped -p 8081:80 \
+  -e RSDW_API_UPSTREAM=http://192.168.1.50:8080 \
+  ghcr.io/cobratrinity/rsdw-panel:latest
+```
+
+Open `http://<host>:8081`; the API address is already filled in, so only the bearer
+token is needed. [`web/docker-compose.yml`](web/docker-compose.yml) does the same with
+Compose, and `docker build -t rsdw-panel web` builds it from a checkout.
+
+| Variable | Effect |
+|----------|--------|
+| `RSDW_API_UPSTREAM` | Game server API to proxy `/api/` to. The panel defaults to its own address. |
+| `RSDW_API_URL` | Without an upstream, the API address the panel is pre-filled with. |
+
+Both must be plain `http(s)://` URLs; anything else stops the container with an error
+rather than being written into the nginx config. The container starts even while the game
+server is down, and `/healthz` backs the image's health check. The token is never part of
+the image or its environment: each person enters it in their own browser.
+
+Images are built by [`.github/workflows/panel-image.yml`](.github/workflows/panel-image.yml)
+on every push to `main` that touches `web/` (`:latest`) and on `v*` tags (`:1.2.3`), for
+amd64 and arm64.
+
+### HTTPS with Nginx Proxy Manager
+
+The mod speaks plain HTTP. To reach it over HTTPS, put a reverse proxy such as
+[Nginx Proxy Manager](https://nginxproxymanager.com/) in front of it.
+
+With the Docker image above, forward one host (`panel.example.com`) to the container's
+port (`8081`) and request a certificate as in step 3: the panel and the API are then both
+on HTTPS. The whitelist advice below still applies, with the panel container as the
+address to allow. Without the container, proxy the API itself:
+
+1. Point a DNS name (`api.example.com`) at the proxy's public IP.
+2. **Hosts → Proxy Hosts → Add Proxy Host**:
+   - *Domain Names*: `api.example.com`
+   - *Scheme*: `http`, *Forward Hostname / IP*: the game server's address, *Forward Port*:
+     the API port (`8080`)
+   - Turn on *Block Common Exploits*. Websockets are not needed.
+3. **SSL** tab: *Request a new SSL Certificate*, and turn on *Force SSL* and *HTTP/2
+   Support*.
+4. In the panel, use `https://api.example.com` as the API address.
+
+No extra headers are needed. Nginx forwards `Authorization` by default, the mod answers
+CORS preflight itself, and every response already carries the CORS headers.
+
+Then close the plain HTTP route, or the token can still be sniffed on it:
+
+- Set `[API] IPWhitelist` to the proxy's address, so only the proxy can reach the API. If
+  the proxy runs in Docker on the same host, the mod sees a Docker bridge address rather
+  than the host's public IP. With `VerboseLogging=true`, rejected addresses are logged as
+  `HTTP: rejected <ip> (not whitelisted)`, which tells you what to allow.
+- Or bind the API to `127.0.0.1` when the proxy runs on the same host outside Docker, or
+  firewall the API port from the internet.
+
+Behind a proxy the whitelist only ever sees the proxy, so restrict who can reach the
+proxy host itself if you need per-client IP limits (NPM's *Access Lists*).
+
 ## RCON
 
 Standard Valve Source RCON, so `mcrcon`, `rcon-cli` and panel consoles all work. Off by
