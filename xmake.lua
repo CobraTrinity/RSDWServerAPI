@@ -1,6 +1,6 @@
 set_project("rsdw-serverapi")
 -- Keep in step with src/version.h (the runtime reads that, not this).
-set_version("0.1.5")
+set_version("0.1.6")
 
 add_rules("mode.release")
 set_languages("c++17")
