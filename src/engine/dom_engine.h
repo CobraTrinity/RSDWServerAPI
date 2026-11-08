@@ -24,9 +24,14 @@ namespace DomEngine {
 namespace Offsets {
 
 // Image offsets - Source: RSDWSDK/Dumpspace/OffsetsInfo.json
-constexpr uintptr_t GObjects = 0x0DC2E4D0;
-constexpr uintptr_t GNames   = 0x0DB72FB8;
-constexpr uintptr_t GWorld   = 0x0DD525F8;
+constexpr uintptr_t GObjects = 0x0DC97510;
+constexpr uintptr_t GNames   = 0x0DBDBFF8; // &FNamePool::CurrentBlock (OFFSET_GNAMES + 0x8)
+constexpr uintptr_t GWorld   = 0x0DDBB678;
+
+// UObject::ProcessEvent, used only when no symbol names it and the vtable confirms it
+// Source: RSDWSDK/Dumpspace/OffsetsInfo.json
+constexpr uintptr_t ProcessEvent      = 0x04E694A0; // OFFSET_PROCESSEVENT
+constexpr int32_t   ProcessEventIndex = 0x4D;       // INDEX_PROCESSEVENT
 
 // TUObjectArray / FUObjectItem - Source: RSDWSDK/CppSDK/SDK/Basic.hpp
 constexpr uintptr_t ObjArray_Objects     = 0x00;

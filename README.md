@@ -427,6 +427,23 @@ in this repository. Generate your own and place it at `RSDWSDK/`. Every offset t
 carries a `// Source:` comment naming the file it came from, so they can be re-verified
 against a fresh dump after a game patch.
 
+Upstream Dumper-7 is Windows only; the Linux server can be dumped with a Linux build of it
+(`LD_PRELOAD`, see its `UsingLinux.md`). After a patch, check every offset in one go:
+
+```bash
+python3 tools/check_offsets.py RSDWSDK
+```
+
+It prints `OK`/`MISMATCH` per constant and exits non-zero if anything moved. If the global
+offsets (`GObjects`, `GNames`, `GWorld`) are stale the mod still finds them by scanning, just
+more slowly; the mod log then says `(segment scan)` instead of `(SDK offset)`.
+
+`UObject::ProcessEvent` is not exported by the stripped shipping binary. It is looked up by name
+in the `RSDragonwildsServer-Linux-Shipping.sym` file that ships with the server, then at the
+SDK offset (only if `UObject`'s vtable holds that address at the dumped slot). Kick, give and
+broadcast are then available at startup. If both fail, it is derived from the stack once the
+first player connects.
+
 ## License
 
 Released under the MIT License. See [LICENSE](LICENSE) for the full text.
