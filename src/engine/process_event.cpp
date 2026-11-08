@@ -16,7 +16,10 @@
 #include <cstdlib>
 #include <chrono>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
+#include <string>
 
 namespace GameThread {
 
@@ -125,6 +128,71 @@ uintptr_t FindInElfFile(const char* wanted, uintptr_t loadBias) {
     return result;
 }
 
+// The server ships '<exe>.sym' (Unreal's BreakpadSymbolEncoder format), which still has
+// every function name after the binary itself was stripped:
+//   uint32 RecordCount
+//   { uint64 Address; uint32 Line; uint32 FileOffset; uint32 SymbolOffset; } x RecordCount
+//   string table, newline terminated, offsets relative to its start
+// Addresses are relative to the image base (the lowest mapped address).
+uintptr_t FindInUnrealSymFile(const char* demangled, uintptr_t imageBase) {
+    char exePath[4096] = {};
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len <= 0) return 0;
+
+    std::string symPath = std::string(exePath, (size_t)len) + ".sym";
+    int fd = open(symPath.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size < 4) {
+        close(fd);
+        return 0;
+    }
+
+    void* mapped = mmap(nullptr, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+    if (mapped == MAP_FAILED) return 0;
+
+    const uint8_t* data = (const uint8_t*)mapped;
+    const size_t size = (size_t)st.st_size;
+    const uint32_t count = *(const uint32_t*)data;
+    const size_t recordSize = 20;
+    const size_t tableStart = 4 + (size_t)count * recordSize;
+
+    uintptr_t result = 0;
+    if (tableStart < size) {
+        const uint8_t* table = data + tableStart;
+        const size_t tableSize = size - tableStart;
+        const std::string needle = std::string(demangled) + "\n";
+
+        // Find the name's offset in the string table (must start a line)
+        int64_t nameOffset = -1;
+        const uint8_t* cursor = table;
+        while (cursor < table + tableSize) {
+            const void* hit = memmem(cursor, (size_t)(table + tableSize - cursor), needle.data(), needle.size());
+            if (!hit) break;
+            const uint8_t* at = (const uint8_t*)hit;
+            if (at == table || at[-1] == '\n') {
+                nameOffset = at - table;
+                break;
+            }
+            cursor = at + 1;
+        }
+
+        if (nameOffset >= 0) {
+            for (uint32_t i = 0; i < count; i++) {
+                const uint8_t* record = data + 4 + (size_t)i * recordSize;
+                if (*(const uint32_t*)(record + 16) != (uint32_t)nameOffset) continue;
+                result = imageBase + (uintptr_t)*(const uint64_t*)record;
+                break;
+            }
+        }
+    }
+
+    munmap(mapped, size);
+    return result;
+}
+
 uintptr_t GetLoadBias() {
     struct Collect {
         static int Callback(struct dl_phdr_info* info, size_t, void* data) {
@@ -138,7 +206,7 @@ uintptr_t GetLoadBias() {
     return bias;
 }
 
-uintptr_t FindBySymbol(std::string& outSource) {
+uintptr_t FindBySymbol(std::string& outSource, uintptr_t moduleBase) {
     uintptr_t address = FindByDlsym();
     if (address) {
         outSource = "dlsym";
@@ -153,7 +221,28 @@ uintptr_t FindBySymbol(std::string& outSource) {
             return address;
         }
     }
+
+    // Shipping builds strip both tables; the game's own .sym file still names it.
+    address = FindInUnrealSymFile("UObject::ProcessEvent(UFunction*, void*)", moduleBase);
+    if (address) {
+        outSource = "unreal-sym";
+        return address;
+    }
     return 0;
+}
+
+// The offset from the SDK dump, accepted only when UObject's vtable holds exactly that
+// address at the dumped slot. Unlike a symbol it does not name what it points at, so it
+// is neither trusted nor made callable until the vtable confirms it.
+uintptr_t FindBySdkOffset(uintptr_t moduleBase) {
+    DomEngine::Engine* engine = DomEngine::g_Engine;
+    uintptr_t sample = engine ? engine->GetObjectByIndex(1) : 0;
+    uintptr_t vtable = sample ? Mem::ReadPtr(sample) : 0;
+    if (!vtable || !Mem::InImage((void*)vtable)) return 0;
+
+    uintptr_t candidate = moduleBase + DomEngine::Offsets::ProcessEvent;
+    uintptr_t slot = vtable + (uintptr_t)DomEngine::Offsets::ProcessEventIndex * sizeof(uintptr_t);
+    return Mem::ReadPtr(slot) == candidate ? candidate : 0;
 }
 
 void Drain() {
@@ -446,9 +535,11 @@ bool Initialize(uintptr_t moduleBase, uintptr_t moduleEnd) {
     }
 
     std::string source;
-    uintptr_t address = FindBySymbol(source);
+    uintptr_t address = FindBySymbol(source, moduleBase);
+    if (!address && (address = FindBySdkOffset(moduleBase))) source = "sdk-offset";
     if (address && address >= moduleBase && address < moduleEnd) {
-        // A symbol hit is the real UObject::ProcessEvent, so it is callable even if the
+        // A symbol hit (or an SDK offset the vtable confirmed) is the real
+        // UObject::ProcessEvent, so it is callable even if the
         // vtable hook below fails. Setting both together also stops DeriveProcessEvent from
         // seeing a half-set state and skipping derivation forever.
         g_Original = (ProcessEventFn)address;
@@ -461,7 +552,7 @@ bool Initialize(uintptr_t moduleBase, uintptr_t moduleEnd) {
                        ", which is outside the image " + HexString(moduleBase) + " - " +
                        HexString(moduleEnd) + "; ignoring it");
         }
-        g_Status = "ProcessEvent not found in .dynsym or .symtab";
+        g_Status = "ProcessEvent not found in .dynsym, .symtab, the .sym file or at the SDK offset";
         // Normal for the stripped Shipping binary. The caller falls back to the exec pump,
         // which derives ProcessEvent from the stack once a player's camera update runs.
         LogMessage("GameThread: " + g_Status + " (stripped binary); falling back to the exec "
