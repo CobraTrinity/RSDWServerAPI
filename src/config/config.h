@@ -106,10 +106,25 @@ struct APIConfig {
         rcon.password = GenerateSecureToken(12);
     }
 
+    // Written to a temporary file and renamed into place, so a concurrent reader never sees a
+    // truncated settings.ini (which would read back as empty secrets and be saved that way for good).
     void Save(const std::string& configPath) {
-        std::ofstream file(configPath);
-        if (!file.is_open()) return;
+        const std::string tempPath = configPath + ".tmp." + std::to_string((long)getpid());
+        {
+            std::ofstream file(tempPath);
+            if (!file.is_open()) return;
+            Write(file);
+            file.flush();
+            if (!file) {
+                file.close();
+                std::remove(tempPath.c_str());
+                return;
+            }
+        }
+        if (std::rename(tempPath.c_str(), configPath.c_str()) != 0) std::remove(tempPath.c_str());
+    }
 
+    void Write(std::ostream& file) const {
         file << "# RSDWRestAPI configuration\n";
         file << "# Generated automatically - edit as needed, then restart the server.\n\n";
 
