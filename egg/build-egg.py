@@ -55,7 +55,7 @@ variables = [
     var("RSDWServerAPI: Enabled", "RSDWAPI_ENABLED", "1",
         "Preload the RSDWServerAPI mod (REST API, RCON, chat admin commands, Discord relay).",
         "required|boolean"),
-    var("RSDWServerAPI: GitHub Repository", "RSDWAPI_REPO", "dkoz/RSDWServerAPI",
+    var("RSDWServerAPI: GitHub Repository", "RSDWAPI_REPO", "CobraTrinity/RSDWServerAPI",
         "owner/repo to download librsdwapi.so from on install. Point this at your own fork "
         "to run a patched build.", "required|string|regex:/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/"),
     var("RSDWServerAPI: Release", "RSDWAPI_RELEASE", "latest",

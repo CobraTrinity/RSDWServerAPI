@@ -43,7 +43,7 @@ install_game() {
 # Picks the release asset by name, never by position. An earlier community installer took
 # assets[0] and ended up running a different build than the one it reported (issue #5).
 release_asset_url() {
-    local repo="${RSDWAPI_REPO:-dkoz/RSDWServerAPI}"
+    local repo="${RSDWAPI_REPO:-CobraTrinity/RSDWServerAPI}"
     local release="${RSDWAPI_RELEASE:-latest}"
     local api="https://api.github.com/repos/${repo}/releases"
     if [ "${release}" = "latest" ]; then api="${api}/latest"; else api="${api}/tags/${release}"; fi
@@ -69,7 +69,7 @@ install_rsdwapi() {
         url=$(release_asset_url)
         if [ -z "${url}" ]; then
             echo "[install] WARNING: no RSDWServerAPI release asset found in" \
-                 "${RSDWAPI_REPO:-dkoz/RSDWServerAPI} (${RSDWAPI_RELEASE:-latest})."
+                 "${RSDWAPI_REPO:-CobraTrinity/RSDWServerAPI} (${RSDWAPI_RELEASE:-latest})."
             echo "[install]          Upload librsdwapi.so to the server root or set the Download URL."
             return 0
         fi
