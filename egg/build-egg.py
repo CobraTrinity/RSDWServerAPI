@@ -12,7 +12,10 @@ HERE = pathlib.Path(__file__).resolve().parent
 start_sh = (HERE / "start.sh").read_text()
 install_sh = (HERE / "install.sh").read_text()
 assert "__START_SH__" not in start_sh, "start.sh must not contain the heredoc delimiter"
+update_sh = (HERE / "rsdwapi-update.sh").read_text()
+assert "__UPDATE_SH__" not in update_sh, "rsdwapi-update.sh must not contain the heredoc delimiter"
 install_sh = install_sh.replace("@@START_SH@@", start_sh.rstrip("\n"))
+install_sh = install_sh.replace("@@UPDATE_SH@@", update_sh.rstrip("\n"))
 
 
 def var(name, env, default, description, rules, viewable=True, editable=True):
@@ -56,13 +59,14 @@ variables = [
         "Preload the RSDWServerAPI mod (REST API, RCON, chat admin commands, Discord relay).",
         "required|boolean"),
     var("RSDWServerAPI: GitHub Repository", "RSDWAPI_REPO", "CobraTrinity/RSDWServerAPI",
-        "owner/repo to download librsdwapi.so from on install. Point this at your own fork "
-        "to run a patched build.", "required|string|regex:/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/"),
+        "owner/repo to download librsdwapi.so from. Checked on every start, and a new release "
+        "is installed automatically. Point this at your own fork to run a patched build.", "required|string|regex:/^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$/"),
     var("RSDWServerAPI: Release", "RSDWAPI_RELEASE", "latest",
-        "Release tag to install, or 'latest'. Applied on (re)install.", "required|string|max:64"),
+        "Release to follow: 'latest', a tag to pin, or 'manual' to never replace librsdwapi.so. "
+        "Checked against the repository on every start.", "required|string|max:64"),
     var("RSDWServerAPI: Download URL", "RSDWAPI_URL", "",
         "Optional direct link to librsdwapi.so or a zip containing it. Overrides the repository "
-        "and release above.", "nullable|url|max:512"),
+        "and release above; re-downloaded on every start and replaced when it changed.", "nullable|url|max:512"),
     var("RSDWServerAPI: REST Port", "RSDWAPI_API_PORT", "8080",
         "TCP port for the REST API. Must be an allocation assigned to this server.",
         "required|integer|between:1024,65535"),

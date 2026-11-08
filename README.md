@@ -63,10 +63,26 @@ LD_PRELOAD=/home/container/librsdwapi.so ./RSDragonwilds/Binaries/Linux/RSDragon
 Allocate the API port (and the RCON port, if you turn it on) in the panel.
 
 A ready-made egg is in [`egg/`](egg/): import `egg-runescape-dragonwilds-rsdwapi.json`. It
-installs the server through SteamCMD, downloads `librsdwapi.so` from a GitHub release (by asset
-name) or a URL you give it, writes `DedicatedServer.ini` from panel variables on every boot,
-and exposes every setting below as a panel variable. Edit `egg/install.sh` and `egg/start.sh`,
-then regenerate the JSON with `python3 egg/build-egg.py`.
+installs the server through SteamCMD, writes `DedicatedServer.ini` from panel variables on every
+boot, and exposes every setting below as a panel variable. Edit `egg/install.sh`, `egg/start.sh`
+and `egg/rsdwapi-update.sh`, then regenerate the JSON with `python3 egg/build-egg.py`.
+
+`librsdwapi.so` comes from a GitHub release of the repository in **GitHub Repository** (any fork
+works). Before every boot the egg checks that release again and installs it if its asset
+changed, so publishing a release updates every server on its next restart:
+
+| Release | Behavior |
+|---|---|
+| `latest` (default) | Follows the newest release |
+| a tag, e.g. `0.1.6` | Stays on that release (re-downloaded only if its asset is replaced) |
+| `manual` | Never touches `librsdwapi.so`; upload your own |
+
+Downloads are checked against GitHub's SHA-256 and swapped in atomically. If GitHub can't be
+reached, the release has no usable asset, or the download is bad, the installed build is kept
+and the server starts normally. A **Download URL** overrides the repository; it is downloaded on
+every boot and replaced when its contents change. A `librsdwapi.so` replaced by hand is never
+overwritten; delete it to go back to following the repository. Servers installed with an older
+egg need one reinstall to get the boot-time check.
 
 The mod only activates inside the server binary itself (`RSDragonwildsServer*`, not the `.sh`
 wrapper). `LD_PRELOAD` is inherited by every child of the startup shell, so this keeps a wrapper

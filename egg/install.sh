@@ -6,10 +6,10 @@ SERVER_DIR=/mnt/server
 APPID="${SRCDS_APPID:-4019830}"
 
 need_tools() {
-    for tool in curl jq unzip tar; do
+    for tool in curl unzip tar; do
         command -v "${tool}" >/dev/null 2>&1 && continue
         apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-            curl jq unzip tar ca-certificates >/dev/null
+            curl unzip tar ca-certificates >/dev/null
         return
     done
 }
@@ -40,62 +40,22 @@ install_game() {
     chmod +x "${SERVER_DIR}/RSDragonwilds/Binaries/Linux/RSDragonwildsServer-Linux-Shipping"
 }
 
-# Picks the release asset by name, never by position. An earlier community installer took
-# assets[0] and ended up running a different build than the one it reported (issue #5).
-release_asset_url() {
-    local repo="${RSDWAPI_REPO:-CobraTrinity/RSDWServerAPI}"
-    local release="${RSDWAPI_RELEASE:-latest}"
-    local api="https://api.github.com/repos/${repo}/releases"
-    if [ "${release}" = "latest" ]; then api="${api}/latest"; else api="${api}/tags/${release}"; fi
-
-    local json
-    json=$(curl -fsSL -H "Accept: application/vnd.github+json" "${api}") || return 1
-    echo "${json}" | jq -r '
-        [ (.assets[] | select(.name == "librsdwapi.so")),
-          (.assets[] | select(.name | test("\\.so$"))),
-          (.assets[] | select(.name | test("(?i)linux.*\\.zip$"))),
-          (.assets[] | select(.name | test("\\.zip$"))) ]
-        | first | .browser_download_url // empty'
-}
-
+# The mod is installed by the same version check start.sh runs before every boot, so an
+# install and a later update can never pick different builds. It needs no jq; zips are
+# unpacked with a copy of this image's unzip (the runtime image has none, same Debian).
 install_rsdwapi() {
+    mkdir -p "${SERVER_DIR}/.egg"
+    cat > "${SERVER_DIR}/.egg/rsdwapi-update.sh" <<'__UPDATE_SH__'
+@@UPDATE_SH@@
+__UPDATE_SH__
+    chmod +x "${SERVER_DIR}/.egg/rsdwapi-update.sh"
+    install -m 0755 "$(command -v unzip)" "${SERVER_DIR}/.egg/unzip" 2>/dev/null
+
     if [ "${RSDWAPI_ENABLED:-1}" != "1" ] && [ "${RSDWAPI_ENABLED:-}" != "true" ]; then
-        echo "[install] RSDWServerAPI disabled, skipping"
+        echo "[install] RSDWServerAPI disabled, skipping the download"
         return 0
     fi
-
-    local url="${RSDWAPI_URL:-}"
-    if [ -z "${url}" ]; then
-        url=$(release_asset_url)
-        if [ -z "${url}" ]; then
-            echo "[install] WARNING: no RSDWServerAPI release asset found in" \
-                 "${RSDWAPI_REPO:-CobraTrinity/RSDWServerAPI} (${RSDWAPI_RELEASE:-latest})."
-            echo "[install]          Upload librsdwapi.so to the server root or set the Download URL."
-            return 0
-        fi
-    fi
-
-    echo "[install] RSDWServerAPI from ${url}"
-    local work=/tmp/rsdwapi
-    rm -rf "${work}" && mkdir -p "${work}"
-    if ! curl -fsSL -o "${work}/download" "${url}"; then
-        echo "[install] WARNING: download failed, the server will start without the API"
-        return 0
-    fi
-
-    local so="${work}/download"
-    if unzip -tq "${so}" >/dev/null 2>&1; then
-        unzip -oq "${so}" -d "${work}/x"
-        so=$(find "${work}/x" -type f -name 'librsdwapi.so' | head -n 1)
-    fi
-    if [ -z "${so}" ] || [ "$(head -c 4 "${so}" | od -An -c | tr -d ' ')" != '177ELF' ]; then
-        echo "[install] WARNING: download is not a Linux shared library, skipping"
-        return 0
-    fi
-
-    install -m 0755 "${so}" "${SERVER_DIR}/librsdwapi.so"
-    mkdir -p "${SERVER_DIR}/rsdwapi"
-    echo "[install] RSDWServerAPI installed ($(stat -c %s "${SERVER_DIR}/librsdwapi.so") bytes)"
+    bash "${SERVER_DIR}/.egg/rsdwapi-update.sh" "${SERVER_DIR}" "[install]"
 }
 
 write_launcher() {

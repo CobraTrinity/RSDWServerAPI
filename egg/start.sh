@@ -65,6 +65,11 @@ fi
 # stock .sh wrapper, crash reporters), so the export is safe. RSDWAPI_* variables from the
 # panel override settings.ini on each boot; blank ones are ignored.
 if [ "${RSDWAPI_ENABLED:-1}" = "1" ] || [ "${RSDWAPI_ENABLED:-}" = "true" ]; then
+    # Version check against the configured repository on every boot; keeps the installed
+    # build if GitHub cannot be reached.
+    if [ -f .egg/rsdwapi-update.sh ]; then
+        bash .egg/rsdwapi-update.sh /home/container "[egg]"
+    fi
     if [ -f /home/container/librsdwapi.so ]; then
         export LD_PRELOAD=/home/container/librsdwapi.so
         export RSDWAPI_DIR=/home/container/rsdwapi
